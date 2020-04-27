@@ -3,6 +3,7 @@
 import argparse
 import redis
 import flask
+import pytz
 from datetime import timedelta, datetime
 import dateutil.parser
 from gevent.pywsgi import WSGIServer
@@ -66,17 +67,17 @@ def query():
     # !!! dates 'from' and 'to' are expected to be in UTC, which is what Grafana provides here.
     # If not in UTC, use pytz to set to UTC timezone and subtract the utcoffset().
     # Time delta calculations should always be done in UTC to avoid pitfalls of daylight offset changes.
-    stime = (dateutil.parser.parse(request['range']['from']) - EPOCH) / timedelta(milliseconds=1)
-    etime = (dateutil.parser.parse(request['range']['to']) - EPOCH) / timedelta(milliseconds=1)
+   
+    stime = (dateutil.parser.parse(request['range']['from']) - pytz.utc.localize(EPOCH)).total_seconds()
+    etime = (dateutil.parser.parse(request['range']['to']) - pytz.utc.localize(EPOCH)).total_seconds()
 
     redis_client = redis.Redis(connection_pool=REDIS_POOL)
     targets = process_targets([t['target'] for t in request['targets']], redis_client)
 
     for target in targets:
-        args = ['ts.range', target, int(stime), int(etime)]
+        args = ['ts.range', target, int(stime)*1000, int(etime)*1000]
         if 'intervalMs' in request and request['intervalMs'] > 0:
             args += ['avg', int(request['intervalMs'])]
-        print(args)
         redis_resp = redis_client.execute_command(*args)
         datapoints = [(float(x2.decode("ascii")), x1) for x1, x2 in redis_resp]
         response.append(dict(target=target, datapoints=datapoints))
